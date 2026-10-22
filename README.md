@@ -1,18 +1,49 @@
-# Philips Bliss ESPHome remote
+<p align="center">
+  <img src="docs/images/hero.png" width="720" alt="The remote's round screen in three states: fan off; fan at speed 3 with the light on; fan at speed 6">
+</p>
 
-ESPHome firmware that turns an **ESP32-2424S012C** (Sunton ESP32-C3 board with a round 1.28" touch display, about €25) into a remote for the **Philips Bliss ceiling fan with light**. The original remote talks to the fan over BLE advertising, using the FanLamp Pro V2 protocol. This board sends the same packets, so:
+<h1 align="center">Philips Bliss ESPHome remote</h1>
+
+<p align="center">
+  A round touch remote for the <b>Philips Bliss</b> ceiling fan with light, built on a €25 ESP32 display.<br>
+  It works on its own, and it shows up in Home Assistant.
+</p>
+
+<p align="center">
+  <img alt="ESPHome 2026.8.2+" src="https://img.shields.io/badge/ESPHome-2026.8.2%2B-000000?logo=esphome&logoColor=white">
+  <img alt="Home Assistant: native API" src="https://img.shields.io/badge/Home%20Assistant-native%20API-18BCF2?logo=homeassistant&logoColor=white">
+  <img alt="ESP32-C3 over BLE" src="https://img.shields.io/badge/ESP32--C3-BLE-E7352C?logo=espressif&logoColor=white">
+  <img alt="MIT license" src="https://img.shields.io/github/license/framarche83/philips-bliss-esphome-remote">
+</p>
+
+> [!NOTE]
+> Not affiliated with, endorsed by or supported by Philips or Signify. "Philips" and "Bliss" are used only to say which product this works with. Use at your own risk.
+
+## How it works
+
+The original remote talks to the fan over BLE advertising, using the FanLamp Pro V2 protocol. This ESPHome firmware turns an **ESP32-2424S012C** into a remote that sends the same packets, so:
 
 - it works on its own, as a wall or table remote, without Home Assistant;
 - with Home Assistant it exposes the fan and the light as normal entities.
 
-> Not affiliated with, endorsed by or supported by Philips or Signify. "Philips" and "Bliss" are used only to say which product this works with. Use at your own risk.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/how-it-works-dark.svg">
+    <img src="docs/images/how-it-works-light.svg" alt="Home Assistant talks to the round remote over WiFi with the ESPHome API; the remote sends commands to the Philips Bliss over BLE and the fan echoes them back; the original remote keeps working">
+  </picture>
+</p>
 
 ## What it does
+
+<p align="center">
+  <img src="docs/images/demo.png" width="300" alt="Animation: tap the fan button to turn the fan on at speed 3, tap plus up to 6, switch the light on, tap minus back to 3, then switch the light and the fan off"><br>
+  <sub>Screenshots from the PC preview, which runs the same UI code as the board.</sub>
+</p>
 
 | Function | On the display | In Home Assistant |
 |---|---|---|
 | Fan on/off (restarts at the last speed) | centre button | `fan` entity |
-| Fan speed 1–6 | − / + buttons, ring shows the speed | speed slider |
+| Fan speed 1–6 | − / + buttons, the ring shows the speed | speed slider |
 | Fan direction | — | direction |
 | Light on/off | bulb button | `light` entity |
 | Realign the assumed light state | long press on the bulb | **Realign light** button |
@@ -20,24 +51,41 @@ ESPHome firmware that turns an **ESP32-2424S012C** (Sunton ESP32-C3 board with a
 
 The screen turns off after 30 s. The first touch only wakes it up.
 
-### Things worth knowing about the Bliss
+## Things worth knowing about the Bliss
 
-These are observations on our unit, made by sniffing the original remote and testing:
+These are observations on our unit, made by sniffing the original remote and testing.
+
+### Quick off/on changes the colour tone: the 8-second hold-back
+
+If the light is switched back on a few seconds after being switched off, the Bliss steps to the next colour tone. It did at 2 s, not at 8 s. The remote therefore holds a quick re-on back until 8 s have passed since the off (`light_min_off_ms`), so the tone stays the same. If you wait longer than that, it switches on immediately.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/hold-back-dark.svg">
+    <img src="docs/images/hold-back-light.svg" alt="Timeline: without the hold-back, switching back on 3 s after the off gives the next colour tone; with the hold-back, a tap at 3 s is sent at 8 s and the tone stays the same">
+  </picture>
+</p>
+
+Every light command, from the display or from Home Assistant, goes through the same logic.
+
+### Other findings
 
 - **The light only has a toggle** (command `0x09`). The fan never reports its state; its echo only confirms that a command arrived. The remote therefore *assumes* the light state and remembers it across reboots. If the light is changed with the original remote, the display can end up inverted: a long press on the bulb (or **Realign light**) flips the icon without sending anything.
-- **Quick off/on changes the colour temperature.** If the light is switched back on a few seconds after being switched off, the Bliss steps to the next tone: it did at 2 s, not at 8 s. The remote therefore holds a quick re-on back until 8 s have passed since the off (`light_min_off_ms`), so the tone stays the same. Waiting longer than that switches it on immediately.
 - **The levels command `0x21` had no visible effect** (the fan echoes it). That is why brightness and colour temperature are off by default (`light_adjustable: "false"`).
 - **Fan:** command `0x31`, `arg0 = 0x20` (6-speed mode), `arg1 = speed 0–6`, where 0 = off.
 - **The fan filters by remote ID, but don't copy the original remote's ID.** In our house all the Bliss units answered to the ID of one original remote, so copying it drove every fan at once. Each board here uses its own ID (derived from its MAC address by default) and is paired with one fan.
 
 ## Hardware
 
-**ESP32-2424S012C** by Sunton, the round 1.28" board with capacitive touch, sold with a case for about €25. The "C" is the touch version; get that one, ideally with the case. Search for "ESP32-2424S012C".
+**ESP32-2424S012C** by Sunton: the round 1.28" board with capacitive touch, sold with a case for about €25. The "C" is the touch version; get that one, ideally with the case. Search for "ESP32-2424S012C".
 
 - ESP32-C3, 4 MB flash, no PSRAM
 - GC9A01A 240×240 round display
 - CST816S capacitive touch
 - USB-C for power and the first flash
+
+<details>
+<summary>Pin mapping</summary>
 
 | Signal | GPIO |
 |---|---|
@@ -46,6 +94,8 @@ These are observations on our unit, made by sniffing the original remote and tes
 | Backlight | 3 |
 | Touch I2C SDA / SCL | 4 / 5 |
 | Touch INT / RST | 0 / 1 (address 0x15) |
+
+</details>
 
 ## Build and flash
 
@@ -64,10 +114,12 @@ Requires ESPHome 2026.8.2 or newer.
 
 A Bliss only accepts pairing during the first few seconds after it is powered on.
 
-1. Make sure the other fans are **not** powered on during the procedure. Fans on separate wall switches that stay on are fine; they ignore the pairing.
-2. Start pressing **Pair with Bliss** (Home Assistant, or the ESPHome API) every few seconds.
-3. Meanwhile, switch the fan off at the wall, wait 5 s and switch it back on.
-4. Tap the bulb on the display: the light should toggle.
+> [!IMPORTANT]
+> Make sure the other fans are **not** powered on during the procedure. Fans on separate wall switches that stay on are fine; they ignore the pairing.
+
+1. Start pressing **Pair with Bliss** (Home Assistant, or the ESPHome API) every few seconds.
+2. Meanwhile, switch the fan off at the wall, wait 5 s and switch it back on.
+3. Tap the bulb on the display: the light should toggle.
 
 The pairing packet is the one the original remote sends on a long press (`0x28`, `param 0x70`, about 2 s). The fan does not echo it, so the only check is that the light then responds. In our test the original remote kept working after pairing.
 
@@ -81,8 +133,6 @@ The device is discovered by the **ESPHome** integration. Add it and enter the AP
 - `light.*_light`: on/off only by default. Brightness and colour temperature have no effect unless `light_adjustable` is `"true"`;
 - `button.*_realign_light` and `button.*_pair_with_bliss` (configuration);
 - `light.*_backlight` (configuration, display brightness).
-
-Every light command, from the display or from Home Assistant, goes through the same logic, including the 8-second hold-back.
 
 To try other commands, call the `send_command` action from **Developer tools → Actions**:
 
@@ -108,13 +158,16 @@ data:
   cd tests && g++ -std=c++17 -I.. test_bliss.cpp -o test_bliss && ./test_bliss > out.txt && python test_bliss.py out.txt
   ```
 
-## Protocol summary
+<details>
+<summary><b>Protocol summary</b></summary>
 
 - Advertising payload: flags `02 01 02`, then 16-bit service data UUID `0x08F0` with 24 bytes.
 - Payload: prefix `10 00 56` for a command, `11 00 56` for the fan's echo; tx counter; device type `0x0400`; remote ID (4 bytes) and index; command, param, arg0–arg2.
 - AES-ECB signature, XBOXES whitening and CRC-16 (CCITT), as in ha-ble-adv's `fanlamp_pro_v2` codec.
 - Commands seen from the original remote: `0x09` light toggle, `0x31` fan speed/off, `0x28` pair (long press).
 - Each press lasts about 0.4 s on the original remote. This firmware advertises each command for 1.5 s, one at a time.
+
+</details>
 
 ## Credits
 

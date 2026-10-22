@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="345" viewBox="0 0 880 345">
+<style>text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;fill:#1f2328} .m{fill:#59636e} .s{font-size:13px} .b{font-weight:600}</style>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#818b98"/></marker><pattern id="hz" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#59636e" stroke-width="2" opacity=".45"/></pattern></defs>
+<rect x="20" y="85" width="210" height="150" rx="14" fill="#f6f8fa" stroke="#d1d9e0"/>
+<path d="M100 140L125 118L150 140M106 135V160H144V135M120 160V147H130V160" fill="none" stroke="#0969da" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="125" y="192" text-anchor="middle" class="b">Home Assistant</text>
+<text x="125" y="212" text-anchor="middle" class="m s">optional</text>
+<circle cx="440" cy="152" r="76" fill="#25282c"/>
+<circle cx="440" cy="152" r="66" fill="#000"/>
+<path d="M399.0 193.0A58 58 0 1 1 481.0 193.0" stroke="#1E2630" stroke-width="7" fill="none" stroke-linecap="round"/>
+<path d="M399.0 193.0A58 58 0 0 1 440.0 94.0" stroke="#3FA9F5" stroke-width="7" fill="none" stroke-linecap="round"/>
+<circle cx="440" cy="140" r="26" fill="#1F6FB2"/>
+<text x="440" y="149" text-anchor="middle" style="fill:#fff;font-size:24px;font-weight:600">3</text>
+<circle cx="396" cy="140" r="11" fill="#303030"/><circle cx="484" cy="140" r="11" fill="#303030"/>
+<text x="396" y="145" text-anchor="middle" style="fill:#fff;font-size:15px">−</text>
+<text x="484" y="145" text-anchor="middle" style="fill:#fff;font-size:15px">+</text>
+<rect x="414" y="178" width="52" height="22" rx="11" fill="#F5B84C"/>
+<text x="440" y="258" text-anchor="middle" class="b">Round touch remote</text>
+<text x="440" y="278" text-anchor="middle" class="m s">ESP32-2424S012C · ESPHome</text>
+<rect x="650" y="85" width="210" height="150" rx="14" fill="#f6f8fa" stroke="#d1d9e0"/>
+<line x1="755" y1="108" x2="755" y2="124" stroke="#59636e" stroke-width="4" stroke-linecap="round"/>
+<rect x="691" y="125" width="128" height="7" rx="3.5" fill="#59636e"/>
+<rect x="740" y="121" width="30" height="13" rx="6" fill="#1f2328"/>
+<path d="M738 136a17 17 0 0 0 34 0z" fill="#F5B84C"/>
+<text x="755" y="192" text-anchor="middle" class="b">Philips Bliss</text>
+<text x="755" y="212" text-anchor="middle" class="m s">ceiling fan + light</text>
+<line x1="238" y1="152" x2="356" y2="152" stroke="#818b98" stroke-width="2" marker-start="url(#ah)" marker-end="url(#ah)"/>
+<text x="297" y="140" text-anchor="middle" class="s b">WiFi</text>
+<text x="297" y="174" text-anchor="middle" class="m s">ESPHome API</text>
+<line x1="524" y1="140" x2="642" y2="140" stroke="#818b98" stroke-width="2" marker-end="url(#ah)"/>
+<text x="583" y="128" text-anchor="middle" class="s b">BLE</text>
+<line x1="642" y1="166" x2="524" y2="166" stroke="#818b98" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#ah)"/>
+<text x="583" y="186" text-anchor="middle" class="m s">echo</text>
+<rect x="680" y="290" width="150" height="40" rx="10" fill="none" stroke="#d1d9e0" stroke-dasharray="5 4"/>
+<text x="755" y="315" text-anchor="middle" class="m s">original remote</text>
+<line x1="755" y1="288" x2="755" y2="243" stroke="#818b98" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#ah)"/>
+<text x="765" y="270" class="m s">keeps working</text></svg>
