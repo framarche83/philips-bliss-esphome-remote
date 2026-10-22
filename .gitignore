@@ -1,0 +1,6 @@
+secrets.yaml
+.esphome/
+__pycache__/
+*.pyc
+tests/test_bliss
+tests/out.txt

@@ -1,0 +1,351 @@
+# =============================================================================
+# ESP32-2424S012 (ESP32-C3, round 1.28" 240×240 touch display) as a remote for the
+# Philips Bliss ceiling fan with light. The BLE codec is in bliss_ble.h; the screen
+# is in bliss-remote-ui.yaml, shared with the PC preview (preview/preview.yaml).
+#
+# Pins (from rzeldent/platformio-espressif32-sunton):
+#   SPI   CLK 6 · MOSI 7 · CS 10 · DC 2 · reset not connected   backlight 3
+#   (ESPHome has the mipi_spi model "ESP32-2424S012" for this board)
+#   touch CST816 on I2C SDA 4 · SCL 5 · INT 0 · RST 1 (address 0x15)
+#
+# The C3 has a single core, 4 MB of flash and no PSRAM. One remote per fan: give each
+# board its own "name" and pair it with its fan (see README, "Pairing").
+# =============================================================================
+
+substitutions:
+  name: bliss-remote
+  friendly_name: Bliss Remote
+  # ID this remote sends. "0" = derived from the board's MAC address, so every board gets
+  # its own. Do NOT copy the ID of the original remote: in our house every Bliss answered
+  # to it, so a copied ID drives all the fans at once. Use your own and pair it instead.
+  remote_id: "0"
+  remote_index: "0"
+  # Light commands. The Bliss remote only has a toggle (0x09), and that is what we tested.
+  # 0x10/0x11 (separate on/off) and 0x21 (brightness/tone) are echoed by the fan, but 0x21
+  # had no visible effect on ours. To experiment: "false" and "true".
+  light_toggle_only: "true"
+  light_adjustable: "false"
+  # The Bliss steps to the next colour temperature when the light is switched back on a few
+  # seconds after switching it off (2 s: tone changed; 8 s: unchanged). The remote holds a
+  # quick re-on back until this much time has passed since the off.
+  light_min_off_ms: "8000"
+
+packages:
+  ui: !include bliss-remote-ui.yaml
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.8.2
+  includes:
+    - bliss_ble.h
+  on_boot:
+    - priority: 800   # before any command
+      then:
+        - lambda: |-
+            uint32_t rid = ${remote_id};
+            bliss::device_id = rid != 0 ? rid : bliss::id_from_mac();
+            bliss::device_index = ${remote_index};
+    # Once setup is done: if restoring the light wrote nothing, light_silent would stay set
+    # and the first tap would not be sent.
+    - priority: -100
+      then:
+        - delay: 2s
+        - globals.set:
+            id: light_silent
+            value: 'false'
+        - logger.log:
+            format: "Remote ID 0x%08X / index %u"
+            args: ['(unsigned) bliss::device_id', 'bliss::device_index']
+
+esp32:
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+
+logger:
+  level: INFO
+
+api:
+  reboot_timeout: 0s   # it is a remote: it must keep working without Home Assistant, not reboot
+  encryption:
+    key: !secret bliss_remote_api_key
+  actions:
+    # For trying unverified commands from Developer tools → Actions,
+    # e.g. light on: cmd 16 (0x10) · levels: cmd 33 (0x21), arg1 cold, arg2 warm.
+    - action: send_command
+      variables:
+        cmd: int
+        arg0: int
+        arg1: int
+        arg2: int
+      then:
+        - lambda: 'id(bliss_send)->execute(cmd, arg0, arg1, arg2);'
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 0s   # same without WiFi (a reboot would lose the assumed light state)
+  ap:
+    ssid: "${name} fallback"
+
+captive_portal:   # without it the fallback AP cannot be used to enter the WiFi password again
+
+# BLE stack only: no scanner, no server. bliss_ble.h drives the advertising.
+esp32_ble:
+  id: ble
+
+# ---------------------------------------------------------------------------
+# STATE SENT TO THE FAN (the speed shown on screen lives in bliss-remote-ui.yaml)
+# ---------------------------------------------------------------------------
+globals:
+  # Last state sent to the fan (to avoid repeating useless commands)
+  - id: sent_speed
+    type: int
+    initial_value: '0'
+  - id: sent_direction
+    type: int
+    initial_value: '0'
+  - id: sent_light_on
+    type: bool
+    initial_value: 'false'
+  # millis() of the last light-off sent (0 = none since boot)
+  - id: light_off_at_ms
+    type: uint32_t
+    initial_value: '0'
+  # true = the next light change only updates the assumed state, nothing is sent.
+  # Starts true for the restore at boot; light_realign uses it too.
+  - id: light_silent
+    type: bool
+    initial_value: 'true'
+  - id: sent_cold
+    type: int
+    initial_value: '-1'
+  - id: sent_warm
+    type: int
+    initial_value: '-1'
+  # Cold/warm levels written by the cwww light
+  - id: light_cold
+    type: float
+    initial_value: '0'
+  - id: light_warm
+    type: float
+    initial_value: '0'
+
+# ---------------------------------------------------------------------------
+# FAN AND LIGHT (the entities Home Assistant sees)
+# ---------------------------------------------------------------------------
+fan:
+  - platform: template
+    id: bliss_fan
+    name: Fan
+    speed_count: 6
+    has_direction: true
+    restore_mode: ALWAYS_OFF   # at boot the fan state is unknown: send nothing
+    on_state:
+      - lambda: |-
+          int v = x->state ? std::max(1, x->speed) : 0;
+          if (v != id(sent_speed)) {
+            id(sent_speed) = v;
+            id(bliss_send)->execute(bliss::CMD_FAN, 0x20, v, 0);
+          }
+      - script.execute: sync_speed
+    on_direction_set:
+      - lambda: |-
+          int d = x == fan::FanDirection::REVERSE ? 1 : 0;
+          if (d != id(sent_direction)) {
+            id(sent_direction) = d;
+            id(bliss_send)->execute(bliss::CMD_DIRECTION, d, 0, 0);
+          }
+
+output:
+  - platform: template
+    id: out_cold
+    type: float
+    write_action:
+      - globals.set:
+          id: light_cold
+          value: !lambda 'return state;'
+      - script.execute: light_apply
+  - platform: template
+    id: out_warm
+    type: float
+    write_action:
+      - globals.set:
+          id: light_warm
+          value: !lambda 'return state;'
+      - script.execute: light_apply
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO3
+
+light:
+  - platform: cwww
+    id: bliss_light
+    name: Light
+    cold_white: out_cold
+    warm_white: out_warm
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2700 K
+    constant_brightness: false
+    gamma_correct: 1.0               # the fan applies its own curve
+    default_transition_length: 0s    # a transition would send dozens of commands
+    # The Bliss only has a toggle, so the state is assumed. It survives reboots (nothing is
+    # sent at boot, see light_silent) and is corrected with light_realign.
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_state:
+      - script.execute: update_ui
+
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: backlight_pwm
+    entity_category: config
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0s
+
+button:
+  - platform: template
+    name: Realign light
+    icon: mdi:lightbulb-question-outline
+    entity_category: config
+    on_press:
+      - script.execute: light_realign
+  - platform: template
+    name: Pair with Bliss
+    icon: mdi:link-variant
+    entity_category: config
+    on_press:
+      - script.execute: bliss_pair
+
+script:
+  # Pairing: the same packet the original remote sends on a long press (0x28, param 0x70,
+  # ~2 s). The Bliss only accepts it during the first seconds after power-on.
+  - id: bliss_pair
+    then:
+      - wait_until:
+          condition:
+            not:
+              script.is_running: bliss_send
+      - lambda: 'bliss::start(bliss::CMD_PAIR, 0, 0, 0, 0x70);'
+      - delay: 2500ms
+      - lambda: 'bliss::stop();'
+
+  # Flips the assumed light state without sending anything, for when the screen shows the
+  # opposite of the real light (long press on the bulb or the button in Home Assistant).
+  - id: light_realign
+    then:
+      - globals.set:
+          id: light_silent
+          value: 'true'
+      - light.toggle: bliss_light
+
+  # BLE command queue: one at a time, each one advertised for 1.5 s (the fan's echo
+  # arrived after up to ~1.2 s in our tests; the original remote sends ~0.4 s).
+  - id: bliss_send
+    mode: queued
+    max_runs: 8
+    parameters:
+      cmd: int
+      arg0: int
+      arg1: int
+      arg2: int
+    then:
+      - lambda: 'bliss::start(cmd, arg0, arg1, arg2);'
+      - delay: 1500ms
+      - lambda: 'bliss::stop();'
+      - delay: 50ms
+
+  # Light-on held back until light_min_off_ms have passed since the off (see the
+  # substitutions); if the light is switched off again meanwhile, light_apply cancels it.
+  - id: light_on_later
+    mode: restart
+    parameters:
+      wait_ms: int
+    then:
+      - delay: !lambda 'return wait_ms;'
+      - lambda: 'id(bliss_send)->execute(${light_toggle_only} ? bliss::CMD_LIGHT_TOGGLE : bliss::CMD_LIGHT_ON, 0, 0, 0);'
+
+  # The two cwww outputs are written one after the other: wait for both, then decide
+  # what to send.
+  - id: light_apply
+    mode: restart
+    then:
+      - delay: 100ms
+      - lambda: |-
+          const bool toggle_only = ${light_toggle_only};
+          const bool adjustable = ${light_adjustable};
+          int c = (int) lroundf(id(light_cold) * 255.0f);
+          int w = (int) lroundf(id(light_warm) * 255.0f);
+          if (id(light_silent)) {
+            id(light_silent) = false;
+            id(sent_light_on) = c != 0 || w != 0;
+            id(sent_cold) = c;
+            id(sent_warm) = w;
+            return;
+          }
+          if (c == 0 && w == 0) {
+            if (id(light_on_later).is_running()) {
+              // The light-on has not been sent yet: just cancel it.
+              id(light_on_later).stop();
+              id(sent_light_on) = false;
+            } else if (id(sent_light_on)) {
+              id(sent_light_on) = false;
+              id(light_off_at_ms) = millis();
+              id(bliss_send)->execute(toggle_only ? bliss::CMD_LIGHT_TOGGLE : bliss::CMD_LIGHT_OFF, 0, 0, 0);
+            }
+            return;
+          }
+          if (!id(sent_light_on)) {
+            id(sent_light_on) = true;
+            const uint32_t min_off = ${light_min_off_ms};
+            uint32_t elapsed = millis() - id(light_off_at_ms);
+            if (id(light_off_at_ms) != 0 && elapsed < min_off)
+              id(light_on_later)->execute(min_off - elapsed);
+            else
+              id(bliss_send)->execute(toggle_only ? bliss::CMD_LIGHT_TOGGLE : bliss::CMD_LIGHT_ON, 0, 0, 0);
+          }
+          if (adjustable && (c != id(sent_cold) || w != id(sent_warm))) {
+            id(sent_cold) = c;
+            id(sent_warm) = w;
+            id(bliss_send)->execute(bliss::CMD_LIGHT_LEVEL, 0, c, w);
+          }
+
+# ---------------------------------------------------------------------------
+# DISPLAY AND TOUCH (the screen itself is in bliss-remote-ui.yaml)
+# ---------------------------------------------------------------------------
+spi:
+  id: spi_bus
+  clk_pin: GPIO6
+  mosi_pin: GPIO7
+
+display:
+  - platform: mipi_spi
+    id: screen
+    model: ESP32-2424S012   # GC9A01A with CS 10, DC 2 and inverted colours preset
+    data_rate: 80MHz
+    auto_clear_enabled: false
+    update_interval: never
+
+i2c:
+  id: i2c_bus
+  sda: GPIO4
+  scl: GPIO5
+
+touchscreen:
+  - platform: cst816
+    id: touch
+    display: screen
+    interrupt_pin: GPIO0
+    reset_pin: GPIO1
+    on_release:
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - script.execute: wake_up

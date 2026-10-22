@@ -1,0 +1,103 @@
+# =============================================================================
+# PC preview of the round remote's screen: same UI as the board
+# (../bliss-remote-ui.yaml) in a 240×240 SDL window, mouse instead of finger.
+# Fan and light are fake: instead of transmitting over BLE they log what would be sent.
+# The thin grey circle marks the edge of the round display.
+#
+# Build and run on Linux (needs libsdl2-dev):
+#   esphome run preview.yaml
+# =============================================================================
+
+esphome:
+  name: bliss-remote-preview
+
+host:
+
+logger:
+  level: INFO
+
+packages:
+  ui: !include ../bliss-remote-ui.yaml
+
+display:
+  - platform: sdl
+    id: screen
+    show_test_card: false
+    auto_clear_enabled: false
+    update_interval: never
+    dimensions:
+      width: 240
+      height: 240
+
+touchscreen:
+  - platform: sdl
+    id: touch
+    display: screen
+    on_release:
+      - if:
+          condition: lvgl.is_paused
+          then:
+            - script.execute: wake_up
+
+output:
+  - platform: template
+    id: out_light
+    type: binary
+    write_action:
+      - logger.log:
+          level: INFO
+          format: "LIGHT → %s"
+          args: ['state ? "on" : "off"']
+  - platform: template
+    id: out_backlight
+    type: float
+    write_action:
+      - logger.log:
+          level: INFO
+          format: "backlight → %.0f%%"
+          args: ['state * 100']
+
+fan:
+  - platform: template
+    id: bliss_fan
+    name: Fan
+    speed_count: 6
+    on_state:
+      - logger.log:
+          level: INFO
+          format: "FAN → %s speed %d"
+          args: ['x->state ? "on" : "off"', 'x->speed']
+      - script.execute: sync_speed
+
+script:
+  - id: light_realign   # on the board this flips the assumed state without sending
+    then:
+      - logger.log: "LIGHT realigned (nothing sent)"
+      - light.toggle: bliss_light
+
+light:
+  - platform: binary
+    id: bliss_light
+    name: Light
+    output: out_light
+    on_state:
+      - script.execute: update_ui
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: out_backlight
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0s
+
+lvgl:
+  top_layer:
+    widgets:
+      - obj:
+          align: CENTER
+          width: 240
+          height: 240
+          radius: 0x7FFF
+          bg_opa: TRANSP
+          border_width: 1
+          border_color: 0x555555
+          clickable: false

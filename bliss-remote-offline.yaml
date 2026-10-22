@@ -1,0 +1,13 @@
+# =============================================================================
+# bliss-remote.yaml without WiFi, API and OTA: a standalone remote, updated over USB only.
+# The !secret tags of the included file must still resolve: a secrets.yaml with dummy
+# values is enough (copy secrets.example.yaml).
+# =============================================================================
+
+packages:
+  base: !include bliss-remote.yaml
+
+wifi: !remove
+captive_portal: !remove
+api: !remove
+ota: !remove

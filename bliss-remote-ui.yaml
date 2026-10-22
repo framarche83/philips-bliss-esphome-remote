@@ -1,0 +1,248 @@
+# =============================================================================
+# Screen of the round remote (240×240) — included as a package both by
+# bliss-remote.yaml (the real board) and by preview/preview.yaml (window on the PC),
+# so the preview always shows the same screen as the board.
+#
+#          ╭───────╮        ring around = current speed (0-6)
+#    [−]   │  ✣    │   [+]  fan icon → on (at the last speed) / off
+#          │   3   │        − / +    → speed down / up (− from 1 = off, + from off = 1)
+#          ╰───────╯        when off: crossed-out fan icon, no number
+#          [  💡  ]         bulb → light on/off
+#                           long press → flips the icon only (realign, nothing sent)
+#   after 30 s the screen turns off; the first touch only wakes it up.
+#
+# Whoever includes this file must define: display "screen", touchscreen "touch",
+# fan "bliss_fan" (6 speeds), light "bliss_light", light "backlight",
+# script "light_realign".
+# =============================================================================
+
+globals:
+  - id: target_speed      # 0-6, the one shown and changed by the buttons
+    type: int
+    initial_value: '0'
+  - id: last_speed        # last speed used while on: the fan button restarts from here
+    type: int
+    initial_value: '3'
+
+script:
+  # Copies the fan entity's speed into the one shown, but not while the buttons have a
+  # pending change.
+  - id: sync_speed
+    then:
+      - lambda: |-
+          if (id(apply_speed).is_running())
+            return;
+          id(target_speed) = id(bliss_fan).state ? id(bliss_fan).speed : 0;
+          if (id(target_speed) > 0)
+            id(last_speed) = id(target_speed);
+      - script.execute: update_ui
+
+  # New speed chosen with the buttons: shown at once, sent shortly after.
+  - id: set_speed
+    parameters:
+      v: int
+    then:
+      - lambda: |-
+          id(target_speed) = std::clamp(v, 0, 6);
+          if (id(target_speed) > 0)
+            id(last_speed) = id(target_speed);
+      - script.execute: update_ui
+      - script.execute: apply_speed
+
+  # Applies the speed 300 ms after the last tap: pressing + three times in a row sends
+  # one command, not three.
+  - id: apply_speed
+    mode: restart
+    then:
+      - delay: 300ms
+      - lambda: |-
+          auto call = id(bliss_fan).make_call();
+          if (id(target_speed) == 0)
+            call.set_state(false);
+          else
+            call.set_state(true).set_speed(id(target_speed));
+          call.perform();
+
+  - id: wake_up
+    then:
+      - lvgl.resume:
+      - lvgl.widget.redraw:
+      - light.turn_on: backlight
+
+  - id: update_ui
+    then:
+      # Off: only the crossed-out icon in the middle. On: icon on top, speed below.
+      - if:
+          condition:
+            lambda: 'return id(target_speed) == 0;'
+          then:
+            - lvgl.widget.hide: lbl_speed
+            - lvgl.widget.hide: ico_fan_on
+            - lvgl.widget.show: ico_fan_off
+          else:
+            - lvgl.label.update:
+                id: lbl_speed
+                text: !lambda 'return std::to_string(id(target_speed));'
+            - lvgl.widget.hide: ico_fan_off
+            - lvgl.widget.show: ico_fan_on
+            - lvgl.widget.show: lbl_speed
+      - lvgl.arc.update:
+          id: speed_arc
+          value: !lambda 'return id(target_speed);'
+      - lvgl.widget.update:
+          id: btn_fan
+          bg_color: !lambda 'return lv_color_hex(id(target_speed) > 0 ? 0x1F6FB2 : 0x303030);'
+      - lvgl.widget.update:
+          id: btn_light
+          bg_color: !lambda 'return lv_color_hex(id(bliss_light).remote_values.is_on() ? 0xFFB020 : 0x303030);'
+      - lvgl.label.update:
+          id: ico_light
+          text_color: !lambda 'return lv_color_hex(id(bliss_light).remote_values.is_on() ? 0x1A1A1A : 0xFFFFFF);'
+
+font:
+  # Material Design Icons: only the glyphs used, so they cost a few bytes.
+  - file:
+      type: web
+      url: https://raw.githubusercontent.com/Templarian/MaterialDesign-Webfont/v7.4.47/fonts/materialdesignicons-webfont.ttf
+    id: icons
+    size: 32
+    bpp: 4
+    glyphs:
+      - "\U000F0335"   # mdi:lightbulb
+  - file:
+      type: web
+      url: https://raw.githubusercontent.com/Templarian/MaterialDesign-Webfont/v7.4.47/fonts/materialdesignicons-webfont.ttf
+    id: fan_icons
+    size: 40
+    bpp: 4
+    glyphs:
+      - "\U000F0210"   # mdi:fan
+      - "\U000F081D"   # mdi:fan-off
+
+lvgl:
+  displays: [screen]
+  touchscreens: [touch]
+  buffer_size: 25%   # no PSRAM on the C3: a quarter of the screen is enough and leaves RAM for WiFi and BLE
+  on_idle:
+    - timeout: 30s
+      then:
+        - light.turn_off: backlight
+        - lvgl.pause:
+  style_definitions:
+    - id: round_button
+      radius: 0x7FFF   # LV_RADIUS_CIRCLE
+      bg_color: 0x303030
+      border_width: 0
+      shadow_width: 0
+      pad_all: 0
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+      widgets:
+        # Indicator only: the arc (0-6) is not touchable.
+        - arc:
+            id: speed_arc
+            align: CENTER
+            width: 230
+            height: 230
+            min_value: 0
+            max_value: 6
+            value: 0
+            arc_width: 12
+            arc_color: 0x1E2630
+            arc_rounded: true
+            indicator:
+              arc_width: 12
+              arc_color: 0x3FA9F5
+              arc_rounded: true
+        - button:
+            id: btn_fan
+            styles: round_button
+            align: CENTER
+            y: -22
+            width: 96
+            height: 96
+            on_click:
+              - script.execute:
+                  id: set_speed
+                  v: !lambda 'return id(target_speed) > 0 ? 0 : id(last_speed);'
+            widgets:
+              - label:
+                  id: ico_fan_off
+                  align: CENTER
+                  text: "\U000F081D"
+                  text_font: fan_icons
+                  text_color: 0x8A949E
+              - label:
+                  id: ico_fan_on
+                  align: TOP_MID
+                  y: 10
+                  text: "\U000F0210"
+                  text_font: fan_icons
+                  text_color: 0xFFFFFF
+                  hidden: true
+              - label:
+                  id: lbl_speed
+                  align: BOTTOM_MID
+                  y: -8
+                  text: "0"
+                  text_font: montserrat_28
+                  text_color: 0xFFFFFF
+                  hidden: true
+        - button:
+            id: btn_minus
+            styles: round_button
+            align: CENTER
+            x: -76
+            y: -22
+            width: 44
+            height: 44
+            on_click:
+              - script.execute:
+                  id: set_speed
+                  v: !lambda 'return id(target_speed) > 0 ? id(target_speed) - 1 : 0;'
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "-"
+                  text_font: montserrat_40
+                  text_color: 0xFFFFFF
+        - button:
+            id: btn_plus
+            styles: round_button
+            align: CENTER
+            x: 76
+            y: -22
+            width: 44
+            height: 44
+            on_click:
+              - script.execute:
+                  id: set_speed
+                  v: !lambda 'return id(target_speed) + 1;'
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "+"
+                  text_font: montserrat_40
+                  text_color: 0xFFFFFF
+        - button:
+            id: btn_light
+            align: CENTER
+            y: 68
+            width: 110
+            height: 48
+            radius: 24
+            bg_color: 0x303030
+            border_width: 0
+            shadow_width: 0
+            on_short_click:     # not on_click: that one also fires after a long press
+              - light.toggle: bliss_light
+            on_long_press:
+              - script.execute: light_realign
+            widgets:
+              - label:
+                  id: ico_light
+                  align: CENTER
+                  text: "\U000F0335"
+                  text_font: icons
+                  text_color: 0xFFFFFF
